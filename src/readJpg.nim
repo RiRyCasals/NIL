@@ -1,4 +1,6 @@
-import os
+import
+  os,
+  strformat
 
 #[ 画像を配列として読み込む手順（予定）http://www.snap-tck.com/room03/c02/cg/cg06_04.html
   1. SOI: Start of image segment
@@ -93,50 +95,52 @@ import os
     b. 続く1バイトが D9 であることを確認
 ]#
 
-proc identification(buffer: uint8) =
+proc identification(buffer: uint8, is0xFF: var bool) =
+  if is0xFF:
+    if buffer == 0xD8:
+      echo "SOI"
+    elif 0xE0 <= buffer and buffer <= 0xEF:
+      echo "APPn"
+    elif buffer == 0xDB:
+      echo "DQT"
+    elif buffer == 0xC0:
+      echo "SOF"
+    elif buffer == 0xC4:
+      echo "DHT"
+    elif buffer == 0xDA:
+      echo "SOS"
+    elif buffer == 0xD9:
+      echo "EOI"
+    elif buffer == 0x00:
+      echo "ただのデータ"
+    else:
+      echo  fmt"定義していない識別子 -> {buffer:#x}"
+    is0xFF = false
+    return
   if buffer == 0xFF:
-    echo "マーカー識別子"
-  elif buffer == 0xD8:
-    echo "SOI"
-  elif 0xE0 <= buffer and buffer <= 0xEF:
-    echo "APPn"
-  elif buffer == 0xDB:
-    echo "DQT"
-  elif buffer == 0xC0:
-    echo "SOF"
-  elif buffer == 0xC4:
-    echo "DHT"
-  elif buffer == 0xDA:
-    echo "SOS"
-  elif buffer == 0xD9:
-    echo "EOI"
-  elif buffer == 0x00:
-    echo "ただのデータ"
-  else:
-    echo  "マーカー識別子ではない"
+    is0xFF = true
+
 
 proc loadImage(path: string) =
   block:
     let file: File = open(path, fmRead)
-
+    var preBinaryIs0xFF: bool = false
     defer:
       file.close()
-
-    echo file.getFileSize
-
+    echo "file size is ", file.getFileSize
     var buffer: uint8
-
-    for i in 0..10:
-      discard file.readBuffer(buffer.addr, 1) #queueみたいな感じ（readByte,readCharなども同じ挙動）
-      # 一つ前が0xFFであるかとか知れるようにしたい
-      buffer.identification
+    for i in 0..800:
+      discard file.readBuffer(buffer.addr, 1)
+      buffer.identification(preBinaryIs0xFF)
+      if preBinaryIs0xFF:
+        stdout.write fmt"{i+1:>4}バイト目 : "
 
 
 when isMainModule:
-  echo "==== start ===="
+  echo "==== read start ===="
   var filePath = "./sample/read.jpg"
   if fileExists(filePath):
     loadImage(filePath)
   else:
     echo "file not exists"
-  echo "===== end ====="
+  echo "===== read end ====="
