@@ -95,20 +95,31 @@ import
     b. 続く1バイトが D9 であることを確認
 ]#
 
-proc identification(buffer: uint8, is0xFF: var bool) =
+proc getSegmentLength(file: File): uint16 =
+  const bufferSize: int = 2
+  var buffer: array[bufferSize, uint8]
+  discard file.readBytes(buffer, 0, bufferSize)
+  result = buffer[0].shl(8) + buffer[1]
+
+proc identification(buffer: uint8, is0xFF: var bool, file: File) =
   if is0xFF:
     if buffer == 0xD8:
       echo "SOI"
     elif 0xE0 <= buffer and buffer <= 0xEF:
       echo "APPn"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xDB:
       echo "DQT"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xC0:
       echo "SOF"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xC4:
       echo "DHT"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xDA:
       echo "SOS"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xD9:
       echo "EOI"
     elif buffer == 0x00:
@@ -120,7 +131,6 @@ proc identification(buffer: uint8, is0xFF: var bool) =
   if buffer == 0xFF:
     is0xFF = true
 
-
 proc loadImage(path: string) =
   block:
     let file: File = open(path, fmRead)
@@ -131,7 +141,7 @@ proc loadImage(path: string) =
     var buffer: uint8
     for i in 0..800:
       discard file.readBuffer(buffer.addr, 1)
-      buffer.identification(preBinaryIs0xFF)
+      buffer.identification(preBinaryIs0xFF, file)
       if preBinaryIs0xFF:
         stdout.write fmt"{i+1:>4}バイト目 : "
 
