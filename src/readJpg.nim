@@ -103,13 +103,12 @@ proc getSegmentLength(file: File): uint16 =
 
 proc identification(buffer: uint8, is0xFF: var bool, file: File) =
   if is0xFF:
-    if buffer == 0xD8:
+    if buffer == 0x00:
+      echo "ただのデータ"
+    elif buffer == 0xD8:
       echo "SOI"
     elif 0xE0 <= buffer and buffer <= 0xEF:
       echo "APPn"
-      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
-    elif buffer == 0xDB:
-      echo "DQT"
       echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xC0:
       echo "SOF"
@@ -117,13 +116,18 @@ proc identification(buffer: uint8, is0xFF: var bool, file: File) =
     elif buffer == 0xC4:
       echo "DHT"
       echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
-    elif buffer == 0xDA:
-      echo "SOS"
+    elif buffer == 0xDB:
+      echo "DQT"
       echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
     elif buffer == 0xD9:
       echo "EOI"
-    elif buffer == 0x00:
-      echo "ただのデータ"
+    elif buffer == 0xDA:
+      echo "SOS"
+      echo "\t ", fmt"len : {file.getSegmentLength}+2バイト"
+    elif 0xF0 <= buffer and buffer <= 0xFD:
+      echo "jpeg拡張用"
+    elif buffer == 0xFE:
+      echo "コメント"
     else:
       echo  fmt"定義していない識別子 -> {buffer:#x}"
     is0xFF = false
