@@ -5,8 +5,9 @@ import
 #[ 画像を配列として読み込む手順（予定）http://www.snap-tck.com/room03/c02/cg/cg07_02.html
   1. pngであることの確認 -> PNGヘッダ
   2. png画像の基本情報を取得 -> IHDRチャンク
-  3. 画像データの読み込み -> IDATチャンク
-  4. 終端子の確認 -> IENDチャンク
+  3. パレット情報の取得 -> PLTEチャンク（カラー画像のときに存在？）
+  4. 画像データの読み込み -> IDATチャンク
+  5. 終端子の確認 -> IENDチャンク
 ]#
 
 proc isPngImage(buffer: array[8, uint8]): bool =
@@ -71,6 +72,18 @@ proc isPLTE(buffer: array[4, uint8]): bool =
     return false
   return true
 
+proc isIDAT(buffer: array[4, uint8]): bool =
+  #これもっとまとめられないだろうか？
+  if buffer[0] != 0x49:
+    return false
+  if buffer[1] != 0x44:
+    return false
+  if buffer[2] != 0x41:
+    return false
+  if buffer[3] != 0x54:
+    return false
+  return true
+
 # chunkDataSizeとchunkTypeは外に出すべき
 proc readImageHeaderChunk(file: File) =
   let chunkDataSize = file.getIHDRChunkDataSize
@@ -107,6 +120,22 @@ proc readPalette(file: File) =
   let cyclicRedundancyCheck = file.get4BytesToInt
   echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
 
+proc readImageData(file: File) =
+  let chunkDataSize = file.get4BytesToInt
+  echo fmt"chunk data size: {chunkDataSize}"
+  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
+  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
+  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
+  if not chunkType.isIDAT:
+    #quit より raise???
+    quit("IDATではありません", QuitFailure)
+  #array[chunkDataSize, uint8] だとコンパイルできない
+  var chunkData: seq[uint8] = @[]
+  chunkData.setLen(chunkDataSize)
+  discard file.readBytes(chunkData, 0, chunkDataSize)
+  let cyclicRedundancyCheck = file.get4BytesToInt
+  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
+
 proc loadImage(path: string) =
   block:
     let file: File = open(path, fmRead)
@@ -126,6 +155,8 @@ proc loadImage(path: string) =
     file.readImageHeaderChunk
     echo "==== PLTE ===="
     file.readPalette
+    echo "==== IDAT ===="
+    file.readImageData
 
 
 when isMainModule:
