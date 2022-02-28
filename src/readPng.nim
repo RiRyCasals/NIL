@@ -34,7 +34,7 @@ proc isPngImage(buffer: array[8, uint8]): bool =
 proc get4BytesToInt(file: File): int =
   var buffer: array[4, uint8]
   discard file.readBytes(buffer, 0, 4) #何バイト取得できたか検証したほうがいい
-  result = int(buffer[0].shl(24) + buffer[1].shl(16) + buffer[2].shl(8) + buffer[3])
+  result = int(buffer[0]).shl(24) + int(buffer[1]).shl(16) + int(buffer[2]).shl(8) + int(buffer[3])
 
 proc getIHDRChunkDataSize(file: File): int =
   result = file.get4BytesToInt
@@ -47,6 +47,12 @@ proc getPLTEChunkDataSize(file: File): int =
   if result mod 3 != 0:
     #quit より raise???
     quit("Chunk data size is not multiple of 3", QuitFailure)
+
+proc getIENDChunkDataSize(file: File): int =
+  result = file.get4BytesToInt
+  if result != 0:
+    #quit より raise???
+    quit("Chunk data size is not 0", QuitFailure)
 
 proc isIHDR(buffer: array[4, uint8]): bool =
   #これもっとまとめられないだろうか？
@@ -81,6 +87,18 @@ proc isIDAT(buffer: array[4, uint8]): bool =
   if buffer[2] != 0x41:
     return false
   if buffer[3] != 0x54:
+    return false
+  return true
+
+proc isIEND(buffer: array[4, uint8]): bool =
+  #これもっとまとめられないだろうか？
+  if buffer[0] != 0x49:
+    return false
+  if buffer[1] != 0x45:
+    return false
+  if buffer[2] != 0x4E:
+    return false
+  if buffer[3] != 0x44:
     return false
   return true
 
@@ -136,6 +154,17 @@ proc readImageData(file: File) =
   let cyclicRedundancyCheck = file.get4BytesToInt
   echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
 
+proc readImageEnd(file: File) =
+  discard file.getIENDChunkDataSize
+  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
+  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
+  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
+  if not chunkType.isIEND:
+    #quit より raise???
+    quit("IENDではありません", QuitFailure)
+  let cyclicRedundancyCheck = file.get4BytesToInt
+  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
+
 proc loadImage(path: string) =
   block:
     let file: File = open(path, fmRead)
@@ -157,6 +186,8 @@ proc loadImage(path: string) =
     file.readPalette
     echo "==== IDAT ===="
     file.readImageData
+    echo "==== IEND ===="
+    file.readImageEnd
 
 
 when isMainModule:
