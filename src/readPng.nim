@@ -1,7 +1,7 @@
 import
   os,
   strformat,
-  endians
+  sequtils
 
 #[ 画像を配列として読み込む手順（予定）http://www.snap-tck.com/room03/c02/cg/cg07_02.html
   1. pngであることの確認 -> PNGヘッダ
@@ -36,181 +36,148 @@ import
       * 16進数で 49 45 4E 44 かつ チャンクデータサイズが0バイト なら IEND
 ]#
 
-const PngSignature = 0x89504E470D0A1A0A
+type
+  ImageHeader = object
+    width: int
+    height: int
+    bitDepth:int
+    colorType: int
+    compressionMethod: int
+    filterMethod: int
+    interlaceMethod: int
+
+const PngSignature1 = 0x89504E47
+const PngSignature2 = 0x0D0A1A0A
 const IhdrType = 0x49484452
 const PlteType = 0x504C5445
 const IdatType = 0x49444154
 const IendType = 0x49454E44
 
-proc toBigEndian32(bufferPointer: pointer): int =
-  #windowsとかでこのあたり違ってきそう
-  bigEndian32(result.addr, bufferPointer)
+proc isPngSigneture(pngSigneture1, pngSigneture2: int64): bool =
+  if pngSigneture1 != PngSignature1 or pngSigneture2 != PngSignature2:
+    return false
+  return true
 
-proc toBigEndian64(bufferPointer: pointer): int =
-  #windowsとかでこのあたり違ってきそう
-  bigEndian64(result.addr, bufferPointer)
+proc isIHDR(chunkTypeBuffer: int, chunkDataLength: int): bool =
+  if chunkDataLength != 13:
+    return false
+  if chunkTypeBuffer != IhdrType:
+    return false
+  return true
 
-proc isPngImage(bufferPointer: pointer): bool =
-  let bigEndianBuffer = toBigEndian64(bufferPointer)
-  if bigEndianBuffer == PngSignature:
-    return true
-  return false
+proc isPLTE(chunkTypeBuffer: int, chunkDataLength, colorType: int): bool =
+  if colorType != 3 or chunkDataLength mod 3 != 0:
+    return false
+  if chunkTypeBuffer != PlteType:
+    return false
+  return true
 
-proc isIHDR(bufferPointer: pointer): bool =
-  let bigEndianBuffer = toBigEndian32(bufferPointer)
-  if bigEndianBuffer == IhdrType:
-    return true
-  return false
+proc isIDAT(chunkTypeBuffer: int): bool =
+  if chunkTypeBuffer != IdatType:
+    return false
+  return true
 
-proc isPLTE(bufferPointer: pointer): bool =
-  let bigEndianBuffer = toBigEndian32(bufferPointer)
-  if bigEndianBuffer == PlteType:
-    return true
-  return false
+proc isIEND(chunkTypeBuffer: int, chunkDataLength: int): bool =
+  if chunkDataLength != 0:
+    return false
+  if chunkTypeBuffer != IendType:
+    return false
+  return true
 
-proc isIDAT(bufferPointer: pointer): bool =
-  let bigEndianBuffer = toBigEndian32(bufferPointer)
-  if bigEndianBuffer == IdatType:
-    return true
-  return false
-
-proc isIEND(bufferPointer: pointer): bool =
-  let bigEndianBuffer = toBigEndian32(bufferPointer)
-  if bigEndianBuffer == IendType:
-    return true
-  return false
-
+proc toInt(buffer: array[4, uint8]): int=
+  for i, element in buffer:
+    result += int(element).shl(8*(3-i))
+  
 proc get4BytesToInt(file: File): int =
   var buffer: array[4, uint8]
   let readLength = file.readBytes(buffer, 0, 4)
   if readLength != 4:
     quit("can not read 4 bytes", QuitFailure)
-  #buffer[0].shl(24)だとoverflowする
-  result = int(buffer[0]).shl(24) + int(buffer[1]).shl(16) + int(buffer[2]).shl(8) + int(buffer[3])
+  result = buffer.toInt
 
-proc readPngSigneture(file: File) =
-  var buffer: int
-  let readLength = file.readBuffer(buffer.addr, 8)
-  if readLength != 8:
-    #quit より raise???
-    quit("can not read 8 bytes", QuitFailure)
-  if not isPngImage(buffer.addr):
-    #quit より raise???
-    quit("file is not png format", QuitFailure)
+proc readCrc(file: File): int =
+  result = file.get4BytesToInt #データ破損の確認用
 
-# chunkDataSizeとchunkTypeは外に出すべき
-proc readIhdrChunk(file: File) =
+proc readIhdrChunk(file: File): ImageHeader =
   echo "==== IHDR ===="
-  let chunkDataSize = file.get4BytesToInt
-  if chunkDataSize != 13:
-    quit("IHDR chunk data size is not 13 bytes", QuitFailure)
-  echo fmt"chunk data size: {chunkDataSize}"
-  #[
-  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
-  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
-  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
-  ]#
-  var chunkType: int
-  discard file.readBuffer(chunkType.addr, 4)
-  if not isIHDR(chunkType.addr):
-    #quit より raise???
-    quit("pngファイルシグネチャの後にIHDRがありません", QuitFailure)
-  let width = file.get4BytesToInt
-  let height = file.get4BytesToInt
-  echo fmt"w:{width:>6}, h:{height:>6}"
-  var buffer1bytesChunk: array[5, uint8]
-  for i in 0..<5:
-    discard file.readBuffer(buffer1bytesChunk[i].addr, 1) #何バイト取得できたか検証したほうがいい
-  echo $buffer1bytesChunk
-  let cyclicRedundancyCheck = file.get4BytesToInt
-  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
+  var imageHeader: ImageHeader
+  imageHeader.width = file.get4BytesToInt
+  imageHeader.height = file.get4BytesToInt
+  discard file.readBuffer(imageHeader.bitDepth.addr, 1) #何バイト取得できたか検証したほうがいい
+  discard file.readBuffer(imageHeader.colorType.addr, 1) #何バイト取得できたか検証したほうがいい
+  discard file.readBuffer(imageHeader.compressionMethod.addr, 1) #何バイト取得できたか検証したほうがいい
+  discard file.readBuffer(imageHeader.filterMethod.addr, 1) #何バイト取得できたか検証したほうがいい
+  discard file.readBuffer(imageHeader.interlaceMethod.addr, 1) #何バイト取得できたか検証したほうがいい
+  let cyclicRedundancyCheck = file.readCrc
+  return imageHeader
 
-proc readPlteChunk(file: File) =
-  let chunkDataSize = file.get4BytesToInt
-  if chunkDataSize mod 3 != 0:
-    quit("PLTE chunk data size is not multiple of 3", QuitFailure)
-  echo fmt"chunk data size: {chunkDataSize}"
-  #[
-  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
-  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
-  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
-  ]#
-  var chunkType: int
-  discard file.readBuffer(chunkType.addr, 4)
-  if not isPLTE(chunkType.addr):
-    #quit より raise???
-    quit("PLTEではありません", QuitFailure)
+proc readPlteChunk(file: File, chunkDataLength: int): seq[uint8] =
+  echo "==== PLTE ===="
   #array[chunkDataSize, uint8] だとコンパイルできない
-  var chunkData: seq[uint8] = @[]
-  chunkData.setLen(chunkDataSize)
-  discard file.readBytes(chunkData, 0, chunkDataSize)
-  let cyclicRedundancyCheck = file.get4BytesToInt
-  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
+  var palette: seq[uint8] = @[]
+  palette.setLen(chunkDataLength)
+  let readLength = file.readBytes(palette, 0, chunkDataLength)
+  if readLength != chunkDataLength:
+    quit("can not read PLTE chunk data", QuitFailure)
+  let cyclicRedundancyCheck = file.readCrc
+  return palette
 
-#seqを返す予定（IDATが複数の時，変換先で結合）
-proc readIdatChunk(file: File) =
-  let chunkDataSize = file.get4BytesToInt
-  echo fmt"chunk data size: {chunkDataSize}"
-  #[
-  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
-  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
-  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
-  ]#
-  var chunkType: int
-  discard file.readBuffer(chunkType.addr, 4)
-  if not isIDAT(chunkType.addr):
-    #quit より raise???
-    quit("IDATではありません", QuitFailure)
+proc readIdatChunk(file: File, chunkDataLength: int): seq[uint8] =
+  echo "==== IDAT ===="
   #array[chunkDataSize, uint8] だとコンパイルできない
-  var chunkData: seq[uint8] = @[]
-  chunkData.setLen(chunkDataSize)
-  discard file.readBytes(chunkData, 0, chunkDataSize)
-  let cyclicRedundancyCheck = file.get4BytesToInt
-  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
+  var image: seq[uint8] = @[]
+  image.setLen(chunkDataLength)
+  let readLength = file.readBytes(image, 0, chunkDataLength)
+  if readLength != chunkDataLength:
+    quit("can not read PLTE chunk data", QuitFailure)
+  let cyclicRedundancyCheck = file.readCrc
+  return image
 
-proc readIendChunk(file: File) =
-  let chunkDataSize = file.get4BytesToInt
-  if chunkDataSize != 0:
-    quit("IEND chunk data size is not 0 bytes", QuitFailure)
-  #[
-  var chunkType: array[4, uint8] #外で読んで判断したほうがいい希ガス
-  discard file.readBytes(chunkType, 0, 4) #何バイト取得できたか検証したほうがいい
-  echo fmt"chunk type: {char(chunkType[0])} {char(chunkType[1])} {char(chunkType[2])} {char(chunkType[3])}"
-  ]#
-  var chunkType: int
-  discard file.readBuffer(chunkType.addr, 4)
-  if not isIEND(chunkType.addr):
-    #quit より raise???
-    quit("IENDではありません", QuitFailure)
-  let cyclicRedundancyCheck = file.get4BytesToInt
-  echo fmt"CRC: {cyclicRedundancyCheck}, ({cyclicRedundancyCheck:#x})"
 
-#画像データの2次元配列を返す予定
-proc loadImage(path: string) =
+proc loadImage(path: string): seq[uint8] =
   block:
-    let file: File = open(path, fmRead)
+    let
+      file = open(path, fmRead)
+      fileSize = file.getFileSize
     defer:
       file.close()
-    let fileSize = file.getFileSize
-    echo "file size is ", fileSize
-    if fileSize < 45:
+    let
+      pngSigneture1 = file.get4BytesToInt
+      pngSigneture2 = file.get4BytesToInt
+    if not isPngSigneture(pngSigneture1, pngSigneture2):
       #quit より raise???
-      quit("ファイルの基本情報が足りていない", QuitFailure)
-    file.readPngSigneture
-    file.readIhdrChunk
-    #IENDを引くかfileをすべて見終わるまでwhileで回す
-    echo "==== PLTE ===="
-    file.readPlteChunk
-    echo "==== IDAT ===="
-    file.readIdatChunk
-    echo "==== IEND ===="
-    file.readIendChunk
+      quit("this is not png file", QuitFailure)
+    var
+      chunkDataLength = file.get4BytesToInt
+      chunkType = file.get4BytesToInt
+    if not isIHDR(chunkType, chunkDataLength):
+      #quit より raise???
+      quit("this is not IHDR chunk", QuitFailure)
+    let imageHeader = file.readIhdrChunk
+    var palette, image: seq[uint8] = @[]
+    while file.getFilePos <= fileSize: #fileSizeを超えてreadBufferやreadBytesはされない
+      chunkDataLength = file.get4BytesToInt
+      chunkType = file.get4BytesToInt
+      if isPLTE(chunkType, chunkDataLength, imageHeader.colorType):
+        palette = readPlteChunk(file, chunkDataLength)
+      elif isIDAT(chunkType):
+        image = concat(image, readIdatChunk(file, chunkDataLength))
+      elif isIEND(chunkType, chunkDataLength):
+        echo "==== IEND ===="
+        break
+      else:
+        var devnul: int8
+        discard file.readBuffer(devnul.addr, chunkDataLength)
+        discard file.readCrc
+    return image
 
 when isMainModule:
   echo "==== read start ===="
   var filePath = "./sample/read.png"
+  var image: seq[uint8] = @[]
   if fileExists(filePath):
-    loadImage(filePath)
+    image = loadImage(filePath)
   else:
     echo "file not exists"
   echo "===== read end ====="
+  echo $image
