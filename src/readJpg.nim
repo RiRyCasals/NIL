@@ -2,7 +2,10 @@ import
   os,
   strformat
 
-#[ 画像を配列として読み込む手順（予定）http://www.snap-tck.com/room03/c02/cg/cg06_04.html
+#[ 画像を配列として読み込む手順（予定）
+    http://www.snap-tck.com/room03/c02/cg/cg06_04.html
+    https://www.setsuki.com/hsp/ext/jpg.htm
+    https://www.marguerite.jp/Nihongo/Labo/Image/JPEG.html
   1. SOI: Start of image segment
     a. マーカー識別子 FF があることを確認
     b. 続く1バイトが D8 であることを確認
