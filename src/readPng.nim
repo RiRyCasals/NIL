@@ -134,7 +134,8 @@ proc readIdatChunk(file: File, chunkDataLength: int): seq[uint8] =
   return image
 
 
-proc loadImage(path: string): seq[uint8] =
+#2次元のseqを返却 -> RGBも必要だから3次元
+proc loadImage(path: string): seq[seq[uint8]] =
   block:
     let
       file = open(path, fmRead)
@@ -142,6 +143,7 @@ proc loadImage(path: string): seq[uint8] =
     defer:
       file.close()
     let
+      #オーバーフロー対策として8バイトを2つに分割して読み込み
       pngSigneture1 = file.get4BytesToInt
       pngSigneture2 = file.get4BytesToInt
     if not isPngSigneture(pngSigneture1, pngSigneture2):
@@ -166,18 +168,23 @@ proc loadImage(path: string): seq[uint8] =
         echo "==== IEND ===="
         break
       else:
+        echo fmt"not defined: {chunkType:#x}, length: {chunkDataLength}"
         var devnul: int8
         discard file.readBuffer(devnul.addr, chunkDataLength)
         discard file.readCrc
-    return image
+    echo $imageHeader
+    echo "image length: ", image.len
+    #imageは圧縮されているものなのでココで解凍
+    let image2d = image.distribute(imageHeader.height, false)
+    return image2d
 
 when isMainModule:
   echo "==== read start ===="
   var filePath = "./sample/read.png"
-  var image: seq[uint8] = @[]
+  var image: seq[seq[uint8]] = @[]
   if fileExists(filePath):
     image = loadImage(filePath)
   else:
     echo "file not exists"
   echo "===== read end ====="
-  echo $image
+  #echo $image
