@@ -3,7 +3,11 @@ import
   strformat,
   sequtils
 
-#[ 画像を配列として読み込む手順（予定）http://www.snap-tck.com/room03/c02/cg/cg07_02.html
+# https://ja.wikipedia.org/wiki/Libpng を使えばラクなのでは？
+
+#[ 画像を配列として読み込む手順（予定）
+    https://www.setsuki.com/hsp/ext/png.htm
+    http://www.snap-tck.com/room03/c02/cg/cg07_02.html
   1. pngであることの確認 -> PNGヘッダ
   2. png画像の基本情報を取得 -> IHDRチャンク
   3. パレット情報の取得 -> PLTEチャンク（カラー画像のときに存在？）
